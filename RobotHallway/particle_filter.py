@@ -368,13 +368,15 @@ def test_doors(b_print=True):
                 print(f"Failed sensor True test: probability for in front of door should be bigger")
                 return False
             else:
-                print("Passed test_door {test_door}")
+                if b_print:
+                    print("Passed test_door {test_door}")
         else:
             if not weight_in_front_of_door < weight_not_in_front_of_door:
                 print(f"Failed sensor False test: probability for NOT in front of door should be bigger")
                 return False
             else:
-                print("Passed test_door {test_door}")
+                if b_print:
+                    print("Passed test_door {test_door}")
     return True
 
 
