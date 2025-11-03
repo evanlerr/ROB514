@@ -15,8 +15,11 @@ from rclpy.node import Node
 # We're going to do some math
 import numpy as np
 
+# Header for the twist message
+from std_msgs.msg import Header
+
 # Velocity commands are given with Twist messages, from geometry_msgs
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import TwistStamped
 
 # Laser scans are given with the LaserScan message, from sensor_msgs
 from sensor_msgs.msg import LaserScan
@@ -68,7 +71,10 @@ class MyStopper(Node):
 		# DO NOT hard-wire in the number of readings, or the min/max angle. You CAN hardwire in the size of the robot
 
 		# Create a twist and fill in all the fields (you will only set t.linear.x).
-		t = Twist()
+		t = TwistStamped()
+		t.header = Header()
+		t.header.frame_id = 'base_link'  # Transform is in the robot's coordinate frame
+		t.header.stamp = self.get_clock().now().to_msg()  # What time are we sending this?
 		t.linear.x = 0.0
 		t.linear.y = 0.0
 		t.linear.z = 0.0

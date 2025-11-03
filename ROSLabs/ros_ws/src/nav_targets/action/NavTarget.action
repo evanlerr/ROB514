@@ -2,7 +2,7 @@
 geometry_msgs/PointStamped goal
 ---
 # Result
-std_msgs/Bool success
+bool success
 ---
 # Feedback
 std_msgs/Float32 distance

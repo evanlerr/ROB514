@@ -18,7 +18,7 @@ def generate_launch_description():
     use_stamped_velocity = LaunchConfiguration('use_stamped_velocity')
     use_stamped_velocity_arg = DeclareLaunchArgument(
         'use_stamped_velocity',
-        default_value='false',
+        default_value='true',
         description='on true stage will accept TwistStamped command messages')
     
     # If using stage world only, this is where cave lives
@@ -45,6 +45,12 @@ def generate_launch_description():
         default_value='false',
         description='on true all tfs are published with a namespace on /tf and /tf_static')
     
+    use_sim_time = LaunchConfiguration('use_sim_time')
+    use_sim_time_arg = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='on true all times are sim times')
+    
     def stage_world_configuration(context):
         file = os.path.join(
             stage_ros2_directory,
@@ -68,6 +74,7 @@ def generate_launch_description():
         use_stamped_velocity_arg,
         stage_world_arg,
         one_tf_tree_arg, 
+        use_sim_time_arg,
         enforce_prefixes_arg, 
         use_static_transformations_arg, 
         rob_stage_world_configuration_arg,   # Change this back to stage_world_configuration_arg for using stage_ros2 worlds
@@ -79,6 +86,7 @@ def generate_launch_description():
                         'enforce_prefixes': enforce_prefixes,
                         'use_stamped_velocity': use_stamped_velocity,
                         'use_static_transformations': use_static_transformations,
+                        'use_sim_time': use_sim_time,
                 "world_file": [LaunchConfiguration('world_file')]}],
         )
     ])

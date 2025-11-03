@@ -2,7 +2,7 @@
 
 # Bill Smart, smartw@oregonstate.edu
 #
-# driver.py
+# send_points.py
 # Send navigation targets to the robot
 
 
@@ -15,15 +15,13 @@ import numpy as np
 
 from threading import Lock
 
-from rcl_interfaces.msg import SetParametersResult
-from rclpy.parameter import Parameter
-
 from geometry_msgs.msg import PointStamped, Point
 from visualization_msgs.msg import Marker, MarkerArray
 from rclpy.action import ActionClient
+from rclpy.action.client import ClientGoalHandle
 from nav_targets.action import NavTarget
 from rclpy.executors import MultiThreadedExecutor
-import asyncio
+from rclpy.task import Future
 
 
 class SendPoints(Node):
@@ -44,35 +42,41 @@ class SendPoints(Node):
 		self.current_point = 0
 		self.points = [p for p in points]
 
-		self.send_goal_future = None
-		self.last_distance = 1e30
+		# Parameters that hold the current state of the action client
+		self._send_goal_future = None
+		self._goal_handle = None
+		self._result_future = None
 
-		# Timer to make sure we publish the target marker
+		# Timer to make sure we publish the target marker and start the goal sending
 		self.start_timer = self.create_timer(1.0, self._start_action_client)
 
-		# Publisher for the visualization
+		# Publisher for the RViz visualization
 		self.marker_pub = self.create_publisher(MarkerArray, 'goal_points', 1)
 
 	def _start_action_client(self):
+		""" Call this to start sending goal, or send the next goal"""
+
+		# Cancel the timer - we're starting
+		self.start_timer.cancel()
+
 		if self.current_point == 0:
 			# Wait for driver to start
 			self.get_logger().info("Start driver.py to get started")
 			self.action_client.wait_for_server()
 		
-		# Cancel the timer
-		self.start_timer.cancel()
-
 		if self.current_point >= len(self.points):
 			self.get_logger().info("No more points to send")
 			return
 			
 		if self.current_point == 0:
+			# First time through - make the marker points and publish them
 			self.set_marker_points()
 
-		# send the goal
+		# send the current goal
 		pt = self.points[self.current_point]
 		self.current_point += 1
 
+		# Create the goal point in the world coordinate frame
 		goal = NavTarget.Goal()
 		goal.goal.header.frame_id = 'odom'
 		goal.goal.header.stamp = self.get_clock().now().to_msg()
@@ -83,21 +87,38 @@ class SendPoints(Node):
 
 		self.get_logger().info(f'Sending goal request... {self.current_point-1} of {len(self.points)} {pt[0], pt[1]}')
 
-		self.send_goal_future = self.action_client.send_goal_async(goal=goal, 
-														 feedback_callback=self._feedback_callback)
-		self.send_goal_future.add_done_callback(self._goal_done_callback)
+		# Send the driver the message that we're ready to send a goal point
+		self._send_goal_future: Future = self.action_client.send_goal_async(goal=goal, 
+														                    feedback_callback=self._feedback_callback)
+		# This sets the call back for when the driver says it got the goal request 
+		self._send_goal_future.add_done_callback(self._goal_sent_callback)
 
-	def _goal_done_callback(self, future):
-		if future.done():
-			self.get_logger().info(f"done goal {future.result()}")
-			if self.last_distance < 1.0:
-				self.start_timer.reset()		
+	def _goal_sent_callback(self, future : Future):
+		""" This gets called when the server says I got the goal
+		@param future - communicate with the server"""
+
+		self._goal_handle: ClientGoalHandle = future.result()
+		if not self._goal_handle.accepted:
+			self.warn(f"{self.get_name()}: Action server not available; did you kill driver.py?")
 		else:
-			self.get_logger().info(f"Not done goal  {future.result()}")
+			self.get_logger().info(f"Goal accepted")
+			# Add a callback for the actual driver executing the goal
+			self._result_future: Future = self._goal_handle.get_result_async()
+			self._result_future.add_done_callback(self._goal_done_callback)
+
+	def _goal_done_callback(self, future : Future):
+		""" This gets called when the server says I finished the goal"""
+		result: NavTarget.Result = future.result().result
+		if result:
+			self.get_logger().info(f"Got to goal {self.current_point}, moving to next")
+			self.start_timer.reset() # Increment to the next goal	
+		else:
+			self.get_logger().info(f"Did not get to goal, stopping {self.current_point}")
 
 	def _feedback_callback(self, feedback):
-		"""Every time we get a laser scan (that triggers the robot moving), send back the distance to the target as feedbackack
+		"""Every time driver loops in the action callback it send back the distance to the target as feedbackack
 		@param feedback - data created by the action server - this has the distance in it (as a float)"""
+		
 		# Right now not doing anything but publishing the current distance
 		self.last_distance = feedback.feedback.distance.data
 		self.get_logger().info(f'Feedback: Distance: {feedback.feedback.distance.data}')

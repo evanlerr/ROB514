@@ -18,24 +18,40 @@ from geometry_msgs.msg import Twist, PoseStamped
 from math import atan2, tanh, sqrt, pi, fabs, cos, sin
 import numpy as np
 
-from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Twist, PointStamped
+# Header for the twist message
+from std_msgs.msg import Header
+
+# The twist command and the goal
+from geometry_msgs.msg import TwistStamped, PointStamped
+
+# For publishing markers to rviz
 from visualization_msgs.msg import Marker
+
+# The laser scan message type
 from sensor_msgs.msg import LaserScan
+
+# These are all for setting up the action server/client
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
+from rclpy.action.server import ServerGoalHandle
+
+# This is the format of the message sent by the client - it is another node under lab 2
 from nav_targets.action import NavTarget
+
+# These are for transforming points/targets in the world into a point in the robot's coordinate space
 from tf2_ros.transform_listener import TransformListener
 from tf2_ros.buffer import Buffer
 from tf2_geometry_msgs import do_transform_point
+
+# This sets up multi-threading so the laser scan can happen at the same time we're processing the target goal
 from rclpy.executors import MultiThreadedExecutor
 import time
 
 
 class Lab2Driver(Node):
-	def __init__(self, threshold=0.4 + 0.2):
+	def __init__(self, threshold=0.2):
 		""" We have parameters this time
-		@param threshold - how close do you have to be before saying you're at the goal? Set to width of box plus width of robot
+		@param threshold - how close do you have to be before saying you're at the goal? Set to width of robot
 		"""
 		# Initialize the parent class, giving it a name.  The idiom is to use the
 		# super() class.
@@ -46,213 +62,270 @@ class Lab2Driver(Node):
 		# A controllable parameter for how close you have to be to the goal to say "I'm there"
 		self.threshold = threshold
 
-		# Make a Marker - this will hold the target goal when the action client (send points) publishes one
-		self.goal_marker = None
+		# Make a Marker to put in RViz to show the current goal/target the robot is aiming for
+		self.target_marker = None
 
 		# Publisher before subscriber
-		self.cmd_pub = self.create_publisher(Twist, 'cmd_vel', 10)
+		self.cmd_pub = self.create_publisher(TwistStamped, 'cmd_vel', 10)
 		# Publish the current target as a marker (so RViz can show it)
 		self.target_pub = self.create_publisher(Marker, 'current_target', 1)
 
 		# Subscriber after publisher; this is the laser scan
 		self.sub = self.create_subscription(LaserScan, 'base_scan', self.scan_callback, 1)
 
-		# Create a buffer to put the data in
+		# Create a buffer to put the transform data in
 		self.tf_buffer = Buffer()
         
+		# This sets up a listener for all of the transform types created
 		self.transform_listener = TransformListener(self.tf_buffer, self)
 
 		# Action client for passing "target" messages/state around
 		# An action has a goal, feedback, and a result. This class (the driver) will have the action server side, and be
 		#   responsible for sending feed back and result
-		# The SendPoints class will have the action client - it will send the goals and cancel the goal when 
-		#    distance is close enough
+		# The SendPoints class will have the action client - it will send the goals and cancel the goal and send another when 
+		#    the server says it has completed the goal
+		# There is an initial call and response (are you ready for a target?) followed by the target itself
+		#   goal_accept_callback handles accepting the goal
+		#   cancel_callback is called if the goal is actually canceled by the action client
+		#   execute_callback actually starts moving toward the goal
 		self.action_server = ActionServer(node=self,
 									action_type=NavTarget,
 									action_name="nav_target",
 									callback_group=ReentrantCallbackGroup(),
-									goal_callback=self.goal_callback,
+									goal_callback=self.goal_accept_callback,
 									cancel_callback=self.cancel_callback,
 									execute_callback=self.action_callback)
 
-		# Keep the current distance and target
-		self.target = (0, 0)
-		self.distance = 1e30
+		# This is the goal in the robot's coordinate system, calculated in set_target
+		self.target = PointStamped()
+		self.target.point.x = 0.0
+		self.target.point.y = 0.0
 
-		self.last_forward = 0.0
-		self.last_turn = 0.0
+		# GUIDE: Declare any variables here
+  # YOUR CODE HERE
 
-		# Timer to make sure we publish the target marker
+		# Timer to make sure we publish the target marker (once we get a goal)
 		self.marker_timer = self.create_timer(1.0, self._marker_callback)
 
-	@classmethod
-	def zero_twist(cls):
+	def zero_twist(self):
 		"""This is a helper class method to create and zero-out a twist"""
-		command = Twist()
-		command.linear.x = 0.0
-		command.linear.y = 0.0
-		command.linear.z = 0.0
-		command.angular.x = 0.0
-		command.angular.y = 0.0
-		command.angular.z = 0.0
+		t = TwistStamped()
+		t.header.frame_id = 'base_link'
+		t.header.stamp = self.get_clock().now().to_msg()
+		t.twist.linear.x = 0.0
+		t.twist.linear.y = 0.0
+		t.twist.linear.z = 0.0
+		t.twist.angular.x = 0.0
+		t.twist.angular.y = 0.0
+		t.twist.angular.z = 0.0
 
-		return command
+		return t
 
 	def _marker_callback(self):
-		"""Publishes the points in the list and links them up so they'll show up in RViz"""
+		"""Publishes the target so it shows up in RViz"""
 		# If we have a marker from before, get rid of it
-		if self.goal_marker:
-			self.goal_marker.action = Marker.DELETE
-			self.target_pub.publish(self.goal_marker)
-			self.goal_marker = None
-			self.get_logger().info(f"Had an existing marker; removing")
+		if self.target_marker:
+			self.target_marker.action = Marker.DELETE
+			self.target_pub.publish(self.target_marker)
+			self.target_marker = None
+			self.get_logger().info(f"Driver: Had an existing target marker; removing")
 
 		if not self.goal:
 			return
 		
-		# Build a marker for the goal point
-		#   - this prints out the green dot in RViz (the current goal)
-		# Make a Marker - this will hold the goal
-		self.goal_marker = Marker()
-		self.goal_marker.header.frame_id = self.goal.header.frame_id
-		self.goal_marker.header.stamp = self.get_clock().now().to_msg()
-		self.goal_marker.id = 0
-		self.goal_marker.type = Marker.SPHERE
-		self.goal_marker.action = Marker.ADD
-		self.goal_marker.pose.position = self.goal.point
-		self.goal_marker.scale.x = 0.3
-		self.goal_marker.scale.y = 0.3
-		self.goal_marker.scale.z = 0.3
-		self.goal_marker.color.r = 0.0
-		self.goal_marker.color.g = 1.0
-		self.goal_marker.color.b = 0.0
-		self.goal_marker.color.a = 1.0
+		# Build a marker for the target point
+		#   - this prints out the green dot in RViz (the current target)
+		self.target_marker = Marker()
+		self.target_marker.header.frame_id = self.goal.header.frame_id
+		self.target_marker.header.stamp = self.get_clock().now().to_msg()
+		self.target_marker.id = 0
+		self.target_marker.type = Marker.SPHERE
+		self.target_marker.action = Marker.ADD
+		self.target_marker.pose.position = self.goal.point
+		self.target_marker.scale.x = 0.3
+		self.target_marker.scale.y = 0.3
+		self.target_marker.scale.z = 0.3
+		self.target_marker.color.r = 0.0
+		self.target_marker.color.g = 1.0
+		self.target_marker.color.b = 0.0
+		self.target_marker.color.a = 1.0
 
 		# Publish the marker
-		self.target_pub.publish(self.goal_marker)
-		self.get_logger().info(f"Making new marker and canceling timer")
+		self.target_pub.publish(self.target_marker)
+
+		# Turn off the timer so we don't just keep making and deleting the target Marker
+		#   Will get turned back on when we get an goal request
 		self.marker_timer.cancel()
 
-	def goal_callback(self, goal_request):
+	def goal_accept_callback(self, goal_request : ServerGoalHandle):
 		"""Accept a request for a new goal"""
-		self.get_logger().info("Got a goal request")
+		self.get_logger().info("Received a goal request")
 
 		# Timer to make sure we publish the new target
 		self.marker_timer.reset()
 
+		# Accept all goals. You can use this (in the future) to NOT accept a goal if you want
 		return GoalResponse.ACCEPT
 	
-	def cancel_callback(self, goal_handle):
+	def cancel_callback(self, goal_handle : ServerGoalHandle):
 		"""Accept or reject a client request to cancel an action."""
 		self.get_logger().info('Received cancel request')
+
+		# Make sure our goal is removed
+		self.goal = None
+
+		# Timer to make sure we remove the current target (if there is one)
+		self.marker_timer.reset()
+
 		return CancelResponse.ACCEPT
 	
-	# Respond to the action request.
-	def action_callback(self, goal_handle):
-		""" This gets called when an action is received by the action server (in this case, the new goal)
-		@goal - this is the new goal """
-		self.get_logger().info(f'Got an action request... {goal_handle.request.goal.point}')
+	def close_enough(self):
+		""" Return true if close enough to goal. This will be used in action_callback to stop moving toward the goal
+		@ return true/false """
+
+  # YOUR CODE HERE
+		return False
+
+	def distance_to_target(self):
+		""" Communicate with send points - set to distance to target"""
+		return np.sqrt(self.target.point.x ** 2 + self.target.point.y ** 2)
 	
-		# Set the new goal.
+	# Respond to the action request.
+	def action_callback(self, goal_handle : ServerGoalHandle):
+		""" This gets called when the new goal is sent by SendPoints
+		@param goal_handle - this has the new goal
+		@return a NavTarget return when done """
+
+		self.get_logger().info(f'Received an execute goal request... {goal_handle.request.goal.point}')
+	
+		# Save the new goal as a stamped point
 		self.goal = PointStamped()
 		self.goal.header = goal_handle.request.goal.header
 		self.goal.point = goal_handle.request.goal.point
 		
-		while self.distance > self.threshold:
-			self.get_logger().info(f"looping")
+		# Build a result to send back
+		result = NavTarget.Result()
+		result.success = False
+
+		# Keep publishing feedback, then sleeping (so the laser scan can happen)
+		while not self.close_enough():
 			feedback = NavTarget.Feedback()
-			feedback.distance.data = self.distance
+			feedback.distance.data = self.distance_to_target()
 			
-			# publish feedback
+			# Publish feedback - this gets sent back to send_points
 			goal_handle.publish_feedback(feedback)
 
 			# sleep so we can process the next scan
+			self.get_logger().info(f"Time stamp start {self.get_clock().now().to_msg()}")
 			time.sleep(1)
+			self.get_logger().info(f"Time stamp end {self.get_clock().now().to_msg()}")
 
-		self.get_logger().info(f"Completed goal {self.distance}")
+		self.get_logger().info(f"Completed goal")
+
+		# Set the succeed value on the handle
 		goal_handle.succeed()
 
-		# Build a result to send back
-		result = NavTarget.Result()
-		self.get_logger().info(f"result {result}")
-		result.success.data = True	
+		# Set the result to True and return
+		result.success = True
 		return result
 
-	def set_distance_to_goal(self):
+	def set_target(self):
+		""" Convert the goal into an x,y position (target) in the ROBOT's coordinate space
+		@return the new target as a Point """
+
 		if self.goal:
-			# This gets the target in the ROBOT'S coordinate frame			
+			# Transforms for all coordinate frames in the robot are stored in a transform tree
+			#  odom is the coordinate frame of the "world", base_link is the base link of the robot
+			# A transform stores a rotation/translation to go from one coordinate system to the other
 			transform = self.tf_buffer.lookup_transform('odom', 'base_link', rclpy.time.Time(), timeout=rclpy.duration.Duration(seconds=1.0))
-			target = do_transform_point(self.goal, transform)
-			self.target = (target.point.x, target.point.y)
+
+			# This applies the transform to the Stamped Point
+			#    Note: This does not work, for reasons that are unclear to me
+			self.target = do_transform_point(self.goal, transform)
+			
+			# This does the transform manually, by calculating the theta rotation from the quaternion
 			euler_ang = -atan2(2 * transform.transform.rotation.z * transform.transform.rotation.w,
 			                   1.0 - 2 * transform.transform.rotation.z * transform.transform.rotation.z)
+			
+			# Translate to the base link's origin
 			x = self.goal.point.x - transform.transform.translation.x
 			y = self.goal.point.y - transform.transform.translation.y
-			self.get_logger().info(f"x y {x} {y}")
+
+			# Do the rotation
 			rot_x = x * cos(euler_ang) - y * sin(euler_ang)
 			rot_y = x * sin(euler_ang) + y * cos(euler_ang)
-			self.target = (rot_x, rot_y)
-			self.get_logger().info(f"Transform {transform.transform.translation} {euler_ang} goal {self.goal.point.x}, {self.goal.point.y}")
+
+			self.target.point.x = rot_x
+			self.target.point.y = rot_y
+			self.get_logger().info(f'Target relative to robot: ({self.target.point.x:.2f}, {self.target.point.y:.2f}), ({rot_x, rot_y})')
 			
-			self.get_logger().info(f'Target relative to robot: ({self.target[0]:.2f}, {self.target[1]:.2f})')
-
-			# How close are we to the goal? Remember that the robot's location
-			#  in it's own coordinate frame is at 0,0
-			self.distance = sqrt(self.target[0] ** 2 + self.target[1] ** 2)
-			return self.distance, self.target
+		else:
+			self.get_logger().info(f'No target to get distance to')
+			self.target = None		
 		
-		self.distance = 100.0
-		self.target = (100, 100)
+		# GUIDE: Calculate any additional variables here
+		#  Remember that the target's location is in its own coordinate frame at 0,0, angle 0 (x-axis)
+  # YOUR CODE HERE
 
-		self.get_logger().info(f'No target to get distance to')
-		return 100.0, (100.0, 100.0)
+		return self.target
 
-	def scan_callback(self, lidar):
+	def scan_callback(self, scan):
+		""" Lidar scan callback
+		@param scan - has information about the scan, and the distances (see stopper.py in lab1)"""
+		
 		self.get_logger().info("In scan callback")
 		# If we have a goal, then act on it, otherwise stay still
 		if self.goal:
-			self.set_distance_to_goal()
+			# Recalculate the target point (assumes we've moved)
+			self.set_target()
 
-			# Are we close enough?  If so, then remove the goal and stop moving
-			#  The actual "we finished the goal" will happen in action_callback
-			if self.distance < self.threshold:
-				self.goal = None
-				command = Lab2Driver.zero_twist()
-			else:
-				# Call the method to actually calculate the twist
-				command = self.get_twist(lidar)
+			# Call the method to actually calculate the twist
+			t = self.get_twist(scan)
 		else:
-			command = Lab2Driver.zero_twist()
+			t = self.zero_twist()
 			self.get_logger().info("No goal, sitting still")
 
 		# Publish the new twist
-		self.cmd_pub.publish(command)
+		self.cmd_pub.publish(t)
 
 	def get_obstacle(self, scan):
-		""" check if an obstacle"""
+		""" check if an obstacle
+		@param scan - the lidar scan"""
+
+		if not self.target:
+			return
+		
+		# GUIDE: Use this method to collect obstacle information - is something in front of, to the left, or to 
+		# the right of the robot? Start with your stopper code from Lab1
   # YOUR CODE HERE
 
-	def get_twist(self, lidar):
+	def get_twist(self, scan):
 		"""This is the method that calculate the twist
-		@param target - a tuple with the (x,y) coordinates of the target point, in the robot's coordinate frame (base_link).
-		    x_axis is forward, y_axis is to the left
-		@param lidar - a LaserScan message with the current data from the LiDAR.  Use this for obstacle avoidance. 
-		    This is the same as your go and stop code
+		@param scan - a LaserScan message with the current data from the LiDAR.  Use this for obstacle avoidance. 
+		    This is the same as your lab1 go and stop code
 		@return a twist command"""
-		command = Lab2Driver.zero_twist()
+		t = self.zero_twist()
 
 		# GUIDE:
 		#  Step 1) Calculate the angle the robot has to turn to in order to point at the target
 		#  Step 2) Set your speed based on how far away you are from the target, as before
 		#  Step 3) Add code that veers left (or right) to avoid an obstacle in front of it
-		# Reminder: command.linear.x = 0.1     sets the forward speed to 0.1
-		#           command.angular.z = 0.1   sets the angular speed
-		# Reminder 2: target is in self.target and distance is in self.distance
+		# Reminder: t.linear.x = 0.1    sets the forward speed to 0.1
+		#           t.angular.z = pi/2   sets the angular speed to 90 degrees per sec
+		# Reminder 2: target is in self.target 
+		#  Note: If the target is behind you, might turn first before moving
+		#  Note: 0.4 is a good speed if nothing is in front of the robot
+
+		min_speed = 0.05
+		max_speed = 0.2         # This moves about 0.01 m between scans
+		max_turn = np.pi * 0.1  # This turns about 2 degrees between scans
 
   # YOUR CODE HERE
 
-		self.get_logger().info(f"Setting twist forward {command.linear.x} angle {command.angular.z}")
-		return command
+		# t.twist.linear.x = max_speed
+		# t.twist.angular.z = 0.0
+		self.get_logger().info(f"Setting twist forward {t.twist.linear.x} angle {t.twist.angular.z}")
+		return t
 
 # The idiom in ROS2 is to use a function to do all of the setup and work.  This
 # function is referenced in the setup.py file as the entry point of the node when
