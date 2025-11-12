@@ -66,12 +66,12 @@ class Lab2Driver(Node):
 		self.target_marker = None
 
 		# Publisher before subscriber
-		self.cmd_pub = self.create_publisher(TwistStamped, 'cmd_vel', 10)
+		self.cmd_pub = self.create_publisher(TwistStamped, 'cmd_vel', 1)
 		# Publish the current target as a marker (so RViz can show it)
 		self.target_pub = self.create_publisher(Marker, 'current_target', 1)
 
 		# Subscriber after publisher; this is the laser scan
-		self.sub = self.create_subscription(LaserScan, 'base_scan', self.scan_callback, 1)
+		self.sub = self.create_subscription(LaserScan, 'base_scan', self.scan_callback, 10)
 
 		# Create a buffer to put the transform data in
 		self.tf_buffer = Buffer()
@@ -107,8 +107,11 @@ class Lab2Driver(Node):
 		# Timer to make sure we publish the target marker (once we get a goal)
 		self.marker_timer = self.create_timer(1.0, self._marker_callback)
 
+		self.count_since_last_scan = 0
+
 	def zero_twist(self):
 		"""This is a helper class method to create and zero-out a twist"""
+		# Don't really need to do this - the default values are zero - but can't hurt
 		t = TwistStamped()
 		t.header.frame_id = 'base_link'
 		t.header.stamp = self.get_clock().now().to_msg()
@@ -123,22 +126,26 @@ class Lab2Driver(Node):
 
 	def _marker_callback(self):
 		"""Publishes the target so it shows up in RViz"""
-		# If we have a marker from before, get rid of it
-		if self.target_marker:
-			self.target_marker.action = Marker.DELETE
-			self.target_pub.publish(self.target_marker)
-			self.target_marker = None
-			self.get_logger().info(f"Driver: Had an existing target marker; removing")
-
 		if not self.goal:
+			# No goal, get rid of marker if there is one
+			if self.target_marker:
+				self.target_marker.action = Marker.DELETE
+				self.target_pub.publish(self.target_marker)
+				self.target_marker = None
+				self.get_logger().info(f"Driver: Had an existing target marker; removing")
 			return
 		
+		# If we do not currently have a marker, make one
+		if not self.target_marker:
+			self.target_marker = Marker()
+			self.target_marker.header.frame_id = self.goal.header.frame_id
+			self.target_marker.id = 0
+		
+			self.get_logger().info(f"Driver: Creating Marker")
+
 		# Build a marker for the target point
 		#   - this prints out the green dot in RViz (the current target)
-		self.target_marker = Marker()
-		self.target_marker.header.frame_id = self.goal.header.frame_id
 		self.target_marker.header.stamp = self.get_clock().now().to_msg()
-		self.target_marker.id = 0
 		self.target_marker.type = Marker.SPHERE
 		self.target_marker.action = Marker.ADD
 		self.target_marker.pose.position = self.goal.point
@@ -207,7 +214,11 @@ class Lab2Driver(Node):
 		result = NavTarget.Result()
 		result.success = False
 
+		# Reset target
+		self.set_target()
+
 		# Keep publishing feedback, then sleeping (so the laser scan can happen)
+		rate = self.create_rate(0.5)
 		while not self.close_enough():
 			feedback = NavTarget.Feedback()
 			feedback.distance.data = self.distance_to_target()
@@ -216,9 +227,17 @@ class Lab2Driver(Node):
 			goal_handle.publish_feedback(feedback)
 
 			# sleep so we can process the next scan
-			self.get_logger().info(f"Time stamp start {self.get_clock().now().to_msg()}")
-			time.sleep(1)
-			self.get_logger().info(f"Time stamp end {self.get_clock().now().to_msg()}")
+			rate.sleep()
+			
+		# Timer to make sure we remove the current target
+		self.marker_timer.reset()
+
+		# Don't keep processing goals
+		self.goal = None 
+
+		# Publish the zero twist
+		t = self.zero_twist()
+		self.cmd_pub.publish(t)
 
 		self.get_logger().info(f"Completed goal")
 
@@ -257,7 +276,7 @@ class Lab2Driver(Node):
 
 			self.target.point.x = rot_x
 			self.target.point.y = rot_y
-			self.get_logger().info(f'Target relative to robot: ({self.target.point.x:.2f}, {self.target.point.y:.2f}), ({rot_x, rot_y})')
+			self.get_logger().info(f'Target relative to robot: ({self.target.point.x:.2f}, {self.target.point.y:.2f}), orig ({self.goal.point.x, self.goal.point.y})')
 			
 		else:
 			self.get_logger().info(f'No target to get distance to')
@@ -272,8 +291,11 @@ class Lab2Driver(Node):
 	def scan_callback(self, scan):
 		""" Lidar scan callback
 		@param scan - has information about the scan, and the distances (see stopper.py in lab1)"""
-		
+	
 		self.get_logger().info("In scan callback")
+		# Got a scan - set back to zero
+		self.count_since_last_scan = 0
+
 		# If we have a goal, then act on it, otherwise stay still
 		if self.goal:
 			# Recalculate the target point (assumes we've moved)
@@ -283,21 +305,24 @@ class Lab2Driver(Node):
 			t = self.get_twist(scan)
 		else:
 			t = self.zero_twist()
-			self.get_logger().info("No goal, sitting still")
+			#t.twist.linear.x = 0.1
+			self.get_logger().info(f"No goal, sitting still")
 
 		# Publish the new twist
 		self.cmd_pub.publish(t)
 
 	def get_obstacle(self, scan):
 		""" check if an obstacle
-		@param scan - the lidar scan"""
+		@param scan - the lidar scan
+		@return Currently True/False and speed, angular turn"""
 
 		if not self.target:
-			return
+			return False, 0.0, 0.0
 		
 		# GUIDE: Use this method to collect obstacle information - is something in front of, to the left, or to 
 		# the right of the robot? Start with your stopper code from Lab1
   # YOUR CODE HERE
+		return False, 0.0, 0.0
 
 	def get_twist(self, scan):
 		"""This is the method that calculate the twist
@@ -325,7 +350,8 @@ class Lab2Driver(Node):
 		# t.twist.linear.x = max_speed
 		# t.twist.angular.z = 0.0
 		self.get_logger().info(f"Setting twist forward {t.twist.linear.x} angle {t.twist.angular.z}")
-		return t
+		return t			
+
 
 # The idiom in ROS2 is to use a function to do all of the setup and work.  This
 # function is referenced in the setup.py file as the entry point of the node when
@@ -343,7 +369,7 @@ def main(args=None):
 	executor = MultiThreadedExecutor()
 	executor.add_node(driver)
 	executor.spin()
-
+	
 	# Make sure we shutdown everything cleanly.  This should happen, even if we don't
 	# include this line, but you should do it anyway.
 	rclpy.shutdown()

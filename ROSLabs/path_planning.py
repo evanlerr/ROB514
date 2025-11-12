@@ -16,9 +16,6 @@ import numpy as np
 # Our priority queue
 import heapq
 
-# Using imageio to read in the image
-import imageio.v2 as imageio
-
 
 # -------------- Showing start and end and path ---------------
 def plot_with_path(im, im_threshhold, zoom=1.0, robot_loc=None, goal_loc=None, path=None):
@@ -226,6 +223,9 @@ def open_image(im_name):
     @param im_name - name of image in Data directory
     @returns image anbd thresholded image"""
 
+    # Using imageio to read in the image
+    import imageio.v2 as imageio
+    # yaml for file format
     import yaml as yaml
 
     # Needed for reading in map info

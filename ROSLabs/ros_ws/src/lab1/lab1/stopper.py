@@ -32,7 +32,7 @@ class MyStopper(Node):
 		super().__init__('my_stopper')
 
 		# Set up a publisher.  The default topic for Twist messages is cmd_vel.
-		self.pub = self.create_publisher(Twist, 'cmd_vel', 10)
+		self.pub = self.create_publisher(TwistStamped, 'cmd_vel', 10)
 
 		# Set up a subscriber.  The default topic for LaserScan messages is base_scan.
 		self.sub = self.create_subscription(LaserScan, 'base_scan', self.callback, 10)
@@ -75,21 +75,22 @@ class MyStopper(Node):
 		t.header = Header()
 		t.header.frame_id = 'base_link'  # Transform is in the robot's coordinate frame
 		t.header.stamp = self.get_clock().now().to_msg()  # What time are we sending this?
-		t.linear.x = 0.0
-		t.linear.y = 0.0
-		t.linear.z = 0.0
-		t.angular.x = 0.0
-		t.angular.y = 0.0
-		t.angular.z = 0.0
+		t.twist.linear.x = 0.0
+		t.twist.linear.y = 0.0
+		t.twist.linear.z = 0.0
+		t.twist.angular.x = 0.0
+		t.twist.angular.y = 0.0
+		t.twist.angular.z = 0.0
 
 		shortest = 0
+		max_speed = 0.2
   # YOUR CODE HERE
 
 		# Send the command to the robot.
 		self.pub.publish(t)
 
 		# Print out a log message to the INFO channel to let us know it's working.
-		self.get_logger().info(f'Shortest {shortest}, speed {t.linear.x}')
+		self.get_logger().info(f'Shortest {shortest}, speed {t.twist.linear.x}')
 
 
 

@@ -13,7 +13,7 @@ from rclpy.node import Node
 
 
 # Velocity commands are given with Twist messages, from geometry_msgs
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import TwistStamped
 
 # Laser scans are given with the LaserScan message, from sensor_msgs
 from sensor_msgs.msg import LaserScan
@@ -26,7 +26,7 @@ class DumbStopper(Node):
 		super().__init__('dumb_stopper')
 
 		# Set up a publisher.  The default topic for Twist messages is cmd_vel.
-		self.pub = self.create_publisher(Twist, 'cmd_vel', 10)
+		self.pub = self.create_publisher(TwistStamped, 'cmd_vel', 10)
 
 		# Set up a subscriber.  The default topic for LaserScan messages is base_scan.
 		self.sub = self.create_subscription(LaserScan, 'base_scan', self.callback, 10)
@@ -55,20 +55,20 @@ class DumbStopper(Node):
 		# Create a Twist and fill in the information.  Note that we fill in values
 		# even for the elements we're not going to use.  We don't have to do this,
 		# but it's good practice.
-		t = Twist()
+		t = TwistStamped()
 		# if something is close, don't move. Otherwise, go forward
-		t.linear.x = 0.0 if self.b_is_stopped else 0.2
-		t.linear.y = 0.0
-		t.linear.z = 0.0
-		t.angular.x = 0.0
-		t.angular.y = 0.0
-		t.angular.z = 0.0
+		t.twist.linear.x = 0.0 if self.b_is_stopped else 0.2
+		t.twist.linear.y = 0.0
+		t.twist.linear.z = 0.0
+		t.twist.angular.x = 0.0
+		t.twist.angular.y = 0.0
+		t.twist.angular.z = 0.0
 
 		# Publish the velocity command.
 		self.pub.publish(t)
 
 		# Print out a log message to the INFO channel to let us know it's working.
-		self.get_logger().info(f'Shortest {shortest}, Published {t.linear.x}, stop y/n {self.b_is_stopped}')
+		self.get_logger().info(f'Shortest {shortest}, Published {t.twist.linear.x}, stop y/n {self.b_is_stopped}')
 
 
 # The idiom in ROS2 is to use a function to do all of the setup and work.  This

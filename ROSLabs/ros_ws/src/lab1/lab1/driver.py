@@ -13,7 +13,7 @@ from rclpy.node import Node
 
 
 # Velocity commands are given with Twist messages, from geometry_msgs
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import TwistStamped
 
 
 class BasicDriver(Node):
@@ -23,7 +23,7 @@ class BasicDriver(Node):
 		super().__init__('driver')
 
 		# Set up a publisher.  The default topic for Twist messages is cmd_vel.
-		self.pub = self.create_publisher(Twist, 'cmd_vel', 10)
+		self.pub = self.create_publisher(TwistStamped, 'cmd_vel', 10)
 
 		# Rather than setting up a Rate-controller loop, the idiom in ROS2 is to use timers.
 		# Timers are available in the Node interface, and take a period (in seconds), and a
@@ -36,19 +36,21 @@ class BasicDriver(Node):
 		# Create a Twist and fill in the information.  Note that we fill in values
 		# even for the elements we're not going to use.  We don't have to do this,
 		# but it's good practice.
-		t = Twist()
-		t.linear.x = 0.2
-		t.linear.y = 0.0
-		t.linear.z = 0.0
-		t.angular.x = 0.0
-		t.angular.y = 0.0
-		t.angular.z = 0.0
+		t = TwistStamped()
+		t.header.frame_id = 'odom'
+		t.header.stamp = self.get_clock().now().to_msg()
+		t.twist.linear.x = 0.2
+		t.twist.linear.y = 0.0
+		t.twist.linear.z = 0.0
+		t.twist.angular.x = 0.0
+		t.twist.angular.y = 0.0
+		t.twist.angular.z = 0.0
 
 		# Publish the velocity command.
 		self.pub.publish(t)
 
 		# Print out a log message to the INFO channel to let us know it's working.
-		self.get_logger().info(f'Published {t.linear.x}')
+		self.get_logger().info(f'Published {t.twist.linear.x}')
 
 
 # The idiom in ROS2 is to use a function to do all of the setup and work.  This

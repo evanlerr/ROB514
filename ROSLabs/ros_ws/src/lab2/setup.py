@@ -20,6 +20,8 @@ setup(
         # This line makes sure the launch files are installer.  This will copy
         # all the files in the launch directory to the install location.
         (os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*.py'))),
+        (os.path.join('share', package_name, 'config'), glob(os.path.join('config', '*.rviz'))),
+        (os.path.join('share', package_name, 'config'), glob(os.path.join('config', '*.yaml'))),
         (os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*.xml'))),
     ],
     install_requires=['setuptools'],
