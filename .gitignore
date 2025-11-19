@@ -134,3 +134,27 @@ dmypy.json
 # Pyre type checker
 .pyre/
 /Shell_code_ROS/.idea/
+Skills/stats_ttest.ipynb
+Skills/stats_ttest.ipynb
+Skills/image_mask_kmeans.py
+Skills/image_mask_kmeans.ipynb
+ROSLabs/path_planning.py
+ROSLabs/check_dijkstra.ipynb
+RobotArm2D/matrix_transforms.py
+RobotArm2D/check_matrices.ipynb
+Skills/image_mask_kmeans.py
+RobotArm2D/arm_forward_kinematics.py
+RobotArm2D/arm_ik_gradient.py
+RobotArm2D/arm_ik_jacobian.py
+RobotArm2D/check_forward_kinematics.ipynb
+RobotArm2D/check_inverse_kinematics.ipynb
+RobotArm2D/check_matrices.ipynb
+RobotArm2D/GitHub.code-workspace
+RobotArm2D/.OTTER_LOG
+RobotArm2D/.OTTER_LOG
+Skills/stats_ttest.ipynb
+Skills/image_mask_kmeans.py
+Skills/image_mask_kmeans.ipynb
+Skills/getting_started.ipynb
+Skills/.OTTER_LOG
+ROSLabs/ros_ws/src/lab2/lab2/driver2.py

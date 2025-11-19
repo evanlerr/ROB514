@@ -2,5 +2,5 @@
 uv python install 3.12.7
 uv python pin 3.12.7
 uv init --bare
-uv add numpy scipy matplotlib otter-grader nbconvert ipykernel ipympl csv yaml skimage imageio 
-uv add pyqt5
+uv add numpy scipy matplotlib otter-grader nbconvert ipykernel ipympl scikit-image imageio 
+uv pip install -v pyqt5

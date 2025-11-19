@@ -29,7 +29,6 @@ from visualization_msgs.msg import Marker
 
 # The laser scan message type
 from sensor_msgs.msg import LaserScan
-
 # These are all for setting up the action server/client
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
@@ -182,9 +181,13 @@ class Lab2Driver(Node):
 	def close_enough(self):
 		""" Return true if close enough to goal. This will be used in action_callback to stop moving toward the goal
 		@ return true/false """
-
-  # YOUR CODE HERE
-		return False
+		xtarg = self.target.point.x
+		ytarg = self.target.point.y
+		tgtdist = sqrt(xtarg**2 + ytarg**2)
+		if tgtdist < self.threshold:
+			return True
+		else:
+			return False
 
 	def distance_to_target(self):
 		""" Communicate with send points - set to distance to target"""
@@ -287,17 +290,68 @@ class Lab2Driver(Node):
 
 		# Publish the new twist
 		self.cmd_pub.publish(t)
-
 	def get_obstacle(self, scan):
-		""" check if an obstacle
-		@param scan - the lidar scan"""
-
-		if not self.target:
-			return
+		""" Check obstacles in three zones: left, center, and right
+		@param scan - the lidar scan
+		@return [closest_left, closest_center, closest_right] - minimum distances in each zone
 		
-		# GUIDE: Use this method to collect obstacle information - is something in front of, to the left, or to 
-		# the right of the robot? Start with your stopper code from Lab1
-  # YOUR CODE HERE
+		The center zone width is computed using the provided angle-based method: we increment
+		the angle (in degrees) from 0 until sin(angle) > 0.19, using the scanner's angular
+		resolution; the resulting count determines how many readings on each side of center
+		belong to the center zone. Left/right take the remaining field of view.
+		"""
+		# Basic scan bookkeeping
+		num_readings = len(scan.ranges)
+		if num_readings == 0:
+			return [10.0, 10.0, 10.0]
+		
+		# Convert angle bounds to degrees and compute per-reading angle increment (degrees)
+		angle_min = scan.angle_min * 180.0 / np.pi  # negative 3pi/4 radians typically
+		angle_max = scan.angle_max * 180.0 / np.pi  # positive 3pi/4 radians typically
+		angle_range = abs(angle_max - angle_min)
+		softangle_increment = angle_range / float(num_readings)
+		
+		# Determine how many readings on each side of center fall inside the center zone
+		anginc = 0.0
+		count = 0
+		# increment angle from 0 until sin(angle) > 0.19 (angle in degrees)
+		while np.sin(np.radians(anginc)) <= 0.19 and count < num_readings:
+			count += 1
+			anginc += softangle_increment
+		
+		center_index = num_readings // 2
+		center_start = max(0, center_index - count)
+		center_end = min(num_readings, center_index + count + 1)  # exclusive
+		center_indices = range(center_start, center_end)
+		
+		# Left zone: readings left of center_start
+		left_indices = range(0, center_start)
+		# Right zone: readings right of center_end
+		right_indices = range(center_end, num_readings)
+		
+		# Helper to compute safe minimum ignoring invalid values
+		def safe_min(indices):
+			vals = []
+			for i in indices:
+				if i < 0 or i >= num_readings:
+					continue
+				v = scan.ranges[i]
+				if v is None:
+					continue
+				if np.isnan(v) or np.isinf(v):
+					continue
+				if v <= 0.0:
+					continue
+				vals.append(v)
+			if not vals:
+				return 10.0
+			return min(vals)
+		
+		closest_left = safe_min(left_indices)
+		closest_center = safe_min(center_indices)
+		closest_right = safe_min(right_indices)
+		
+		return [closest_left, closest_center, closest_right]
 
 	def get_twist(self, scan):
 		"""This is the method that calculate the twist
@@ -311,20 +365,73 @@ class Lab2Driver(Node):
 		#  Step 2) Set your speed based on how far away you are from the target, as before
 		#  Step 3) Add code that veers left (or right) to avoid an obstacle in front of it
 		# Reminder: t.linear.x = 0.1    sets the forward speed to 0.1
-		#           t.angular.z = pi/2   sets the angular speed to 90 degrees per sec
+		#           t.angular.z = pi/2 vv  sets the angular speed to 90 degrees per sec
 		# Reminder 2: target is in self.target 
 		#  Note: If the target is behind you, might turn first before moving
 		#  Note: 0.4 is a good speed if nothing is in front of the robot
 
-		min_speed = 0.05
-		max_speed = 0.2         # This moves about 0.01 m between scans
+		min_speed = 0.0
+		max_speed = 0.3        # This moves about 0.01 m between scans
 		max_turn = np.pi * 0.1  # This turns about 2 degrees between scans
 
   # YOUR CODE HERE
+		xtarg = self.target.point.x
+		ytarg = self.target.point.y
+		tgtdist = sqrt(xtarg**2 + ytarg**2)
 
-		# t.twist.linear.x = max_speed
-		# t.twist.angular.z = 0.0
-		self.get_logger().info(f"Setting twist forward {t.twist.linear.x} angle {t.twist.angular.z}")
+		# Get obstacle distances: [left, center, right]
+		obstacles = self.get_obstacle(scan)
+		closest_left = obstacles[0]
+		closest_center = obstacles[1]
+		closest_right = obstacles[2]
+
+		theta = atan2(ytarg, xtarg)  # Direction to target
+		
+		# Determine if there's an obstacle in front and which side to turn toward
+		obstacle_ahead = closest_center < 1.0
+		
+		if obstacle_ahead:
+			# Choose to turn toward the side with more space
+			if closest_left > closest_right:
+				turn_direction = -1  # Turn left
+				offx = -0.3  # Steer left
+			else:
+				turn_direction = 1   # Turn right
+				offx = 0.3   # Steer right
+		else:
+			# No obstacle, steer toward target
+			turn_direction = 0
+			offx = theta * 0.3  # Scale target angle to steering command
+		
+		# Improved proximity multiplier: smoother obstacle handling
+		if closest_center < 0.3:
+			OVERproxmult = 0.0  # Stop, allow turning
+		elif closest_center < 1.0:
+			OVERproxmult = max(min((closest_center - 0.3) / 0.7, 1.0), 0.0)
+		else:
+			OVERproxmult = 1.0
+		
+		# Handle waypoint behind obstacle case
+		thetarelation = 2 - 4 * (abs(theta) - 1/2)
+		OVERthetamult = max(min(thetarelation, 1), 0)
+		
+		if abs(theta) > np.pi / 2 and closest_center < 1.0:
+			# Waypoint is behind and obstacle blocks path - reduce speed more aggressively
+			OVERproxmult *= 0.5
+
+		# Calculate final velocity and rotation commands
+		rawvel = tgtdist * OVERthetamult * OVERproxmult
+		cmdvel = max(min(rawvel, max_speed), min_speed)
+		if cmdvel < 0.01:
+			cmdvel = 0.0
+
+		# Rotation: blend target direction with obstacle avoidance steering
+		cmdrot = theta + offx
+
+		t.twist.linear.x = cmdvel
+		t.twist.angular.z = max(min(cmdrot, max_turn), -max_turn)
+		
+		self.get_logger().info(f"obstacles[L:{closest_left:.2f}, C:{closest_center:.2f}, R:{closest_right:.2f}] theta:{theta:.2f} offx:{offx:.2f} vel:{cmdvel:.2f} rot:{cmdrot:.2f}")
 		return t
 
 # The idiom in ROS2 is to use a function to do all of the setup and work.  This

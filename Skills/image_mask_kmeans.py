@@ -9,7 +9,7 @@ from scipy.cluster.vq import kmeans, vq, whiten
 
 # Using imageio to read in the images and skimage to do the color conversion
 import imageio
-from skimage.color import rgb2hsv
+from skimage.color import rgb2hsv, hsv2rgb
 import matplotlib.pyplot as plt
 
 
@@ -22,7 +22,7 @@ def read_and_cluster_image(image_name, use_hsv, n_clusters):
     @n_clusters - number of clusters (up to 6)"""
 
     # Read in the file
-    im_orig = imageio.imread("Data/" + image_name)
+    im_orig = imageio.imread("Skills/Data/" + image_name) ## MAY HAVE TO DELETE SKILSL LATER
     # Make sure you just have rgb (for those images with an alpha channel)
     im_orig = im_orig[:, :, 0:3]
 
@@ -46,6 +46,58 @@ def read_and_cluster_image(image_name, use_hsv, n_clusters):
     # TODO
     # Step 1: If use_hsv is true, convert the image to hsv (see skimage rgb2hsv - skimage has a ton of these
     #  conversion routines)
+
+    if use_hsv:
+        im_orig = rgb2hsv(im_orig)
+    #else:
+        #im_orig = rgb2hsv(im_orig) # just to get all values on the same scalar range haha
+        #im_orig = hsv2rgb(im_orig)
+    sz1 = np.size(im_orig,0)
+    sz2 = np.size(im_orig,1)
+    sz3 = np.size(im_orig,2)
+
+    im_proc = np.reshape(im_orig,[sz1*sz2, sz3]).astype(float)
+    sr1 = np.size(im_proc,0)
+    sr2 = np.size(im_proc,1)
+
+    means = np.zeros(3)
+    stds = np.zeros(3)
+
+    # whitening manually hahhahahahahahahah
+    for i in range(np.size(im_proc,1)):
+        means[i] = np.mean(im_proc[:,i])
+        stds[i] = np.std(im_proc[:,i])
+        im_proc[:,i] = (im_proc[:,i]-means[i])/stds[i]
+
+    centers,_  = kmeans(im_proc,n_clusters)
+    ids,_ = vq(im_proc,centers)
+
+    rgb_color = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0], [0, 255, 255], [255, 0, 255]]
+    #rgb_means = []
+    imdata = im_proc.copy()
+    masked_pix = np.array([rgb_color[int(i)] for i in ids])
+    mask_image = masked_pix.reshape(sz1,sz2,3)
+    axs[1].imshow(mask_image)
+
+
+    for i in range(n_clusters):
+        imdata[ids == i, 0:3] = centers[i]
+    rgb_color = imdata * stds + means
+    rgb_color = np.clip(np.reshape(rgb_color,[sz1,sz2,3]),0,255)
+
+
+    rgb_means = np.zeros((n_clusters,3))
+    for i in range(n_clusters):
+        rgb_means[i] = np.mean(im_proc[ids == i],axis = 0)
+    rgb_means = rgb_means * stds + means #unwhiten
+    img_means = rgb_means[ids]
+    if use_hsv:
+        img_means = hsv2rgb(img_means)
+    else:
+        img_means = np.clip(img_means, 0, 255).astype(np.uint8)
+    img_means = np.reshape(img_means,[sz1,sz2,sz3])
+    
+    axs[2].imshow(img_means)
     # Step 2: reshape the data to be an nx3 matrix
     #   kmeans assumes each row is a data point. So you have to give it a (widthXheight) X 3 matrix, not the image
     #   data as-is (WXHX3). See numpy reshape.
@@ -62,13 +114,12 @@ def read_and_cluster_image(image_name, use_hsv, n_clusters):
     #       1) "undo" the whitening step on the returned cluster (harder)
     #       2) Calculate the means of the clusters in the original data
     #           np.mean(data[ids == c])
-    #
     # Note: To do the HSV option, get the RGB version to work. Then go back and do the HSV one
     #   Simplest way to do this: Copy the code you did before and re-do after converting to hsv first
     #     Don't forget to take the color centers in the *original* image, not the hsv one
     #     Don't forget to rename your variables
     #   More complicated: Make a function. Most of the code is the same, except for a conversion to hsv at the beginning
-
+    print("hello world")
     # An array of some default color values to use for making the rgb mask image
     rgb_color = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0], [0, 255, 255], [255, 0, 255]]
     # YOUR CODE HERE
@@ -86,3 +137,10 @@ if __name__ == '__main__':
     # windows to show
     plt.show()
     print("done")
+
+# List of names (creates a set)
+worked_with_names = {"mindy atuschul"}
+# List of URLS FW25(creates a set)
+websites = {"scipy tutorials","https://docs.scipy.org/doc/scipy/reference/cluster.vq.html"}
+# Approximate number of hours, including lab/in-class time
+hours = 7

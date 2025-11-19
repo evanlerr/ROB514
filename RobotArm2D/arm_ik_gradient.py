@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 
 # If this doesn't work, right click on top level folder and pick "mark folder" as source
 import arm_forward_kinematics as afk
+import copy
 
 
 # --------------------------- Inverse Kinematics ------------------
@@ -32,6 +33,10 @@ def vector_to_goal(arm_with_angles, target):
     @return - a 2x1 numpy array that is the vector (vx, vy)
     """
     # TODO:
+
+    current = afk.get_gripper_location(arm_with_angles)
+    vec = np.array([target[0] - current[0], target[1] - current[1]])
+    return vec
     #   Get the gripper/grasp location using get_gripper_location
     #   Calculate and return the vector
     # YOUR CODE HERE
@@ -47,9 +52,13 @@ def distance_to_goal(arm_with_angles, target):
     @param target - a 2x1 numpy array (x,y) that is the desired target point
     @return: The distance between the gripper loc and the target
     """
-
+    
     # TODO: Call the function above, then return the vector's length
     # YOUR CODE HERE
+
+    vec = vector_to_goal(arm_with_angles, target)
+    dist = np.linalg.norm(vec)
+    return dist
 
 
 def calculate_gradient(arm, angles, target):
@@ -77,6 +86,25 @@ def calculate_gradient(arm, angles, target):
     #   Calculate (f(x+h) - f(x)) / h and append that to the derivs list
     # Step 3: Do the wrist/gripper angle the same way (but remember, that angle
     #   is stored in angles[-1][0])
+    afk.set_angles_of_arm_geometry(arm, angles)
+    currdist = distance_to_goal(arm, target)
+
+    anglescopy = copy.deepcopy(angles)
+    for i in range(len(anglescopy)-1):
+        anglescopy[i] += h
+        afk.set_angles_of_arm_geometry(arm, anglescopy)
+        newdist = distance_to_goal(arm, target)
+        anglescopy[i] -= h
+        afk.set_angles_of_arm_geometry(arm, anglescopy)
+        derivs.append(float((newdist - currdist) / h))
+
+    anglescopy[-1][0] += h
+    afk.set_angles_of_arm_geometry(arm, anglescopy)
+    newdist = distance_to_goal(arm, target)
+    anglescopy[-1][0] -= h
+    afk.set_angles_of_arm_geometry(arm, anglescopy)
+    derivs.append(float((newdist - currdist) / h))
+    
     # YOUR CODE HERE
     return derivs
 
@@ -111,6 +139,7 @@ def gradient_descent(arm, angles, target, b_one_step=True) -> tuple:
     #  to return/debug
     b_found_better = False
 
+    #print(angles)
     # Assumption: angles is always the current, best angles, and best_distance is the distance for those angles
     # Stopping conditions - I always like to add a count variable and stop after n loops - safety measure
     afk.set_angles_of_arm_geometry(arm, angles)
@@ -120,6 +149,9 @@ def gradient_descent(arm, angles, target, b_one_step=True) -> tuple:
         # First, calculate the gradiant with the current angles
         # TODO: Calculate the gradient with angles (don't for get to set the angles first)
         # YOUR CODE HERE
+
+        afk.set_angles_of_arm_geometry(arm, angles)
+        grad = calculate_gradient(arm, angles, target)
 
         # This is the while loop where you keep "shrinking" the step size until you get closer to the goal (if
         #  you ever do)
@@ -140,9 +172,26 @@ def gradient_descent(arm, angles, target, b_one_step=True) -> tuple:
             new_angles = []
             # YOUR CODE HERE
 
+            for i, angle in enumerate(angles[:-1]):
+                new_angles.append(angle - step_size * grad[i])
+
+            #wrist_newangles = []
+            #print(angles[-1])
+            new_angles.append([angles[-1][0] - step_size * grad[-1],0,0])
+            #new_angles.append(wrist_newangles)
+
+            # for i in range(len(angles)):
+            #     if i == len(angles) - 1:
+            #         new_angles.append([angles[i][0] - step_size * grad[i]])
+            #     else:
+            #         new_angles.append(angles[i] - step_size * grad[i])
+            
+
             # Now we see how we did
             afk.set_angles_of_arm_geometry(arm, new_angles)
             new_dist = distance_to_goal(arm, target)
+
+            
 
             # TODO:
             #   If the new distance is larger than the best distance, decrease the step size (I suggest cutting it in half)
@@ -150,8 +199,19 @@ def gradient_descent(arm, angles, target, b_one_step=True) -> tuple:
             #     set angles to be new_angles and best_distance to be new_distance
             #     set b_found_better to be True
             # YOUR CODE HERE
+
+
+            if new_dist > best_distance:
+                step_size /= 2
+            else:
+                b_took_one_step = True
+                b_found_better = True
+                angles = new_angles
+                best_distance = new_dist
+            
             # Count iterations
             count_iterations += 1
+
 
         # We can stop if we're close to the goal
         if np.isclose(best_distance, 0.0):
@@ -163,7 +223,7 @@ def gradient_descent(arm, angles, target, b_one_step=True) -> tuple:
             b_keep_going = False
 
     # Return the new angles, and whether or not we ever found a better set of angles
-    return b_found_better, angles, count_iterations
+    return b_found_better, new_angles, count_iterations
 
 
 if __name__ == '__main__':

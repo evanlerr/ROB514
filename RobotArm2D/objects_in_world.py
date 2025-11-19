@@ -119,6 +119,46 @@ def get_pts_as_numpy_array(obj):
     # GUIDE: Create a 3xn numpy array, with the last row 1's, and the points filled
     #  in from the obj["XYs"] key-value
     # YOUR CODE HERE
+
+    coords = obj["XYs"]
+
+    yval = []
+    xval = []
+
+    for i in range(len(coords)):
+        xval.append(coords[i][0])
+        yval.append(coords[i][1])
+
+
+    #print(xval)
+    #print(yval)
+
+    #print("i'm alive")
+    #print(coords)
+
+    hom = np.ones(len(coords))
+    xvala = np.array(xval)
+    yvala = np.array(yval)
+
+    # print(np.size(hom))
+    # print(np.size(xvala))
+    # print(np.size(yvala))
+
+
+    #pts = np.concatenate((xvala,yvala,hom), axis=0)
+    pts = np.vstack((xvala,yvala,hom))
+    #print(pts)
+    # pts = np.array([xval,yval,hom])
+    #print(pts)
+
+    # intarray = np.array(coords)
+    # print(intarray)
+    # testarray = np.ones(len(coords))
+    # print(testarray)
+    # return coords
+    
+    
+
     return pts
 
 
