@@ -5,12 +5,14 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 
+# Functions needed to setup launch commands
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, TextSubstitution
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.substitutions import LaunchConfiguration, TextSubstitution
 from launch.conditions import IfCondition
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, SetLaunchConfiguration
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 
 def generate_launch_description():
@@ -52,14 +54,14 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
-        default_value='false',
+        default_value='true',
         description='on true all times are sim times')
     ld.add_action(use_sim_time_arg)
 
      # If using stage world only, this is where cave lives
     stage_world_arg = DeclareLaunchArgument(
         'world',
-        default_value=TextSubstitution(text='empty'),
+        default_value=TextSubstitution(text='simple'),
         description='World file relative to the project world file, without .world')
     ld.add_action(stage_world_arg)
    
@@ -93,30 +95,46 @@ def generate_launch_description():
         description='if true launch rviz')
     ld.add_action(launch_rviz_arg)
 
-    #rviz_config_file = PathJoinSubstitution(
-    #    ["$(find lab2)", "config", "driver2.rviz"]
-    #)
-    
-    rviz_config_file = os.path.join(get_package_share_directory("lab2"), 'config', 'driver.rviz')
+    rviz_config_file = os.path.join(get_package_share_directory("lab3"), 'config', 'driver.rviz')
 
     rviz_node = Node(
         package="rviz2",
         condition=IfCondition(LaunchConfiguration("launch_rviz")),
         executable="rviz2",
-        name="rviz2_driver",
+        name="rviz2",
         output="log",
         arguments=["-d", rviz_config_file],
     )
     ld.add_action(rviz_node)
 
+    # Define the path to the package containing the included launch file
+    slam_share_directory = get_package_share_directory('slam_toolbox')
+
+    # Our config file
+    slam_config_file = os.path.join(get_package_share_directory("lab3"), 'config', 'slam_mapping.yaml')
+
+    # Define the path to the launch file to be included
+    slam_launch_file_path = os.path.join(
+        slam_share_directory,
+        'launch',
+        'online_async_launch.py'
+    )
+
+    # Create an IncludeLaunchDescription action to include the SLAM launch file
+    slam_included_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([slam_launch_file_path]),
+        launch_arguments={'slam_params_file':slam_config_file}.items()
+    )
+    ld.add_action(slam_included_launch)
+
     send_points_node = Node(
-        package="lab2",
+        package="lab3",
         executable="send_points"
     )
     ld.add_action(send_points_node)
 
     driver_node = Node(
-        package="lab2",
+        package="lab3",
         executable="driver"
     )
 

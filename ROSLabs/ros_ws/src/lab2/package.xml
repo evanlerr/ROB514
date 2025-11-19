@@ -13,7 +13,8 @@
   <test_depend>ament_xmllint</test_depend>
   <test_depend>python3-pytest</test_depend>
 
-  <exec_depend>nav_targets</exec_depend>
+  <depend>rob_stage</depend>
+  <depend>nav_targets</depend>
   
   <export>
     <build_type>ament_python</build_type>

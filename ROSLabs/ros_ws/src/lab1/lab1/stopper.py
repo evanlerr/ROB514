@@ -83,6 +83,7 @@ class MyStopper(Node):
 		t.twist.angular.z = 0.0
 
 		shortest = 0
+		max_speed = 0.2
   # YOUR CODE HERE
 
 		# Send the command to the robot.

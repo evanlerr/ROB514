@@ -194,6 +194,7 @@ def main(args=None):
 	executor = MultiThreadedExecutor()
 	executor.add_node(send_points)
 	executor.spin()
+	#rclpy.spin(send_points)
 
 	# Make sure we shutdown everything cleanly.  This should happen, even if we don't
 	# include this line, but you should do it anyway.

@@ -195,50 +195,9 @@ def dijkstra(im, robot_loc, goal_loc):
 
         # GUIDE
         #  Step 1: Break out of the loop if current_node_ij is the goal node
-        if current_node_ij == goal_loc:
-            break
         #  Step 2: If this node is closed, skip it
-        if visited_closed_yn == True:
-            continue
-
         #  Step 3: Set the node to closed
-        visited[current_node_ij] = (visited_distance,visited_parent,True)
-
-        #print(visited_distance)
-
-        for adj_node in eight_connected(current_node_ij):
-            adj_node_ij = adj_node
-            if not is_free(im,adj_node_ij):
-                continue
-            if adj_node_ij not in visited:
-                visited[adj_node_ij] = [float('inf'), None, False]
-            if visited[adj_node_ij][2]:
-                continue
-            #print(adj_node)
-            edge_cost = np.sqrt((adj_node_ij[0] - current_node_ij[0])**2 + (adj_node_ij[1] - current_node_ij[1])**2)
-            #print(edge_cost)
-
-            dist, parent, closed = visited[adj_node_ij]
-
-            # if any(adj_node_ij == i[1] for i in priority_queue):
-            #     if visited_distance + edge_cost < dist:
-            #         visited[adj_node_ij] = (visited_distance + edge_cost,current_node_ij, closed)
-
-            if (visited_distance + edge_cost) < dist:
-                visited[adj_node_ij] = (visited_distance + edge_cost,current_node_ij, closed)
-                heapq.heappush(priority_queue, (visited_distance+edge_cost, adj_node_ij))
-
-                #i tried following the logic in the pseudocode, but doing this made more sense
-
-            # if adj_node_ij not in priority_queue:
-            #     heapq.heappush(priority_queue, (visited_distance+edge_cost, adj_node_ij))
-
-                #visited[adj_node_ij] = (visited_distance + edge_cost,current_node_ij, closed)
-
-
-
         #    Now do the instructions from the slide (the actual algorithm)
-
         #  Lec : Planning, at the end
         #  https://docs.google.com/presentation/d/1pt8AcSKS2TbKpTAVV190pRHgS_M38ldtHQHIltcYH6Y/edit#slide=id.g18d0c3a1e7d_0_0
         # YOUR CODE HERE
@@ -250,40 +209,10 @@ def dijkstra(im, robot_loc, goal_loc):
         # YOUR CODE HERE
         raise ValueError(f"Goal {goal_loc} not reached")
         return []
-    else:
-        print("HELL YEAH")
-        print(visited[goal_loc])
-        # parent1 = visited[goal_loc][1]
-        # parent2 = visited[parent1][1]
-        # parent3 = visited[parent2][1]
-        # parent4 = visited[parent3][1]
-        # print(parent1)
-        # print(parent2)
-        # print(parent3)
-        # print(parent4)
-        #for i in four_connected(goal_loc):
-            #print(i)
-            #print(visited[i])
 
     path = []
     path.append(goal_loc)
     # GUIDE: Build the path by starting at the goal node and working backwards
-    
-    current = goal_loc
-    while not current == robot_loc:
-        current = visited[current][1]
-        path.append(current)
-
-    current = (goal_loc)
-    i = 0
-    # while i in range(100):
-    #     print(visited[current][1])
-    #     current = visited[current][1]
-    #     path.append(current)
-    #     i += 1
-
-    
-    
     # YOUR CODE HERE
 
     return path
@@ -296,7 +225,6 @@ def open_image(im_name):
 
     # Using imageio to read in the image
     import imageio.v2 as imageio
-    # yaml for file format
     import yaml as yaml
 
     # Needed for reading in map info

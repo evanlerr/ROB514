@@ -14,7 +14,7 @@ def generate_launch_description():
     stage_ros2_directory = get_package_share_directory('stage_ros2')
     rob_stage_directory = get_package_share_directory('rob_stage')
 
-    # Setup for reading in velocity commands
+    # This is a stage parameter - use Twist or TwistStamped. We're going to use the latter
     use_stamped_velocity = LaunchConfiguration('use_stamped_velocity')
     use_stamped_velocity_arg = DeclareLaunchArgument(
         'use_stamped_velocity',
